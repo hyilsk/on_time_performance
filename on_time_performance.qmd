@@ -1,0 +1,541 @@
+---
+title: "Have You Landed On Time? <br/> A Report on the Arrival Performance of U.S. Domestic Flights (09.2021 - 08.2022)"
+subtitle: "Individual Project for MAS102M R Programming"
+author: "Yang Han"
+date: today
+format:
+  html:
+    code-background: true
+    toc: true
+    self-contained: true
+    code-fold: false
+execute: 
+  warning: false
+  message: false
+title-block-banner: banner.jpg
+---
+
+## About the dataset
+Welcome to this individual project on the on-time performance of the domestic flights in the U.S. 
+The Bureau of Transportation Statistics (BTS), part of the Department of Transportation (DOT) tracks and publishes data on commercial aviation and a plethora of other statistics on transportation. 
+The data set for this project is provided by BTS and it can be downloaded from [here](https://www.transtats.bts.gov/OT_Delay/ot_delaycause1.asp?qv52ynB=pun46&20=E) by first selecting the period from September 2021 to August 2022 and then clicking "Download Raw Data". 
+
+In this data frame, each category of flight delay causes are measured by two different types of data: number of delayed flights and minutes of delay. This allows us to interpret the data in a more comprehensive way, as two flights could cause a total of two hours delay while a single flight could keep you waiting for five hours in a terminal. 
+
+The second data frame, which will be introduced at point k), is a list of the airports in the U.S. It contains a wide range of information about the airports, such as full name, 3-letter code, longitude and latitude, links to homepage. The dataset is available for download through [Humanitarian Data Exhange (HDX)](https://data.humdata.org/dataset/ourairports-usa). 
+
+
+## Research questions
+- Has the on-time performance of the domestic flights in the U.S. improved over the period from September 2021 to August 2022?
+- Do punctuality and irregularity rate differ between seasons, airlines and airports?
+- What is the dominant cause(s) of domestic flight delay? Is it, at the same time, the worst time killer? 
+
+
+## Good to know
+Before delving into the analysis, it is always a good idea to learn some titbits about the topic. <br/>Here are two things that you may want to know:<br/> 1. A flight is considered delayed if it arrived at the gate 15 minutes or more after the scheduled arrival time, according to the definition by BTS.<br/> 2. The causes for delays fall into five broad categories:
+
+- Air carrier
+- Extreme weather
+- National Aviation System (NAS)
+- Late-arriving aircraft
+- Security
+
+
+## Part I Getting the dataset ready
+```{r}
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(tidyr)
+library(kableExtra)
+library(lubridate)
+library(data.table)
+library(ggmap)
+library(scales)
+library(treemapify)
+```
+
+
+### a)
+Let's first import the original data frame into R and get an overview of all the variables.
+```{r}
+# read and name this ‘comma separated value’ file
+# "read_csv" for files using period as the decimal point in numbers
+df <- read.csv("Airline_Delay_Cause.csv")
+
+# use the glimpse command to see every column and the corresponding data types
+glimpse(df)
+```
+
+### b)
+Then, let's check if there is any missing values. 
+```{r}
+# identify the position of the columns with at least one missing value
+which(colSums(is.na(df)) > 0)
+```
+The result shows all the columns with missing values as well as the count. In comparison with the total scale of the dataset (more than 20.000 observations), these amounts can be deemed small. However, it is important to incorporate "na.rm=TRUE" into our codes so the missing values will be ignored. 
+
+### c)
+Let's create a new variable "date" by combining "year" and "month". This will make graph plotting easier later on.
+```{r}
+# use the make_date command of the "lubridate" package to concatenate two individual components 
+df <- df %>%
+  mutate(date = make_date(year, month), .before = 1) %>%
+  select(-year) %>%
+  select(-month)
+
+# the datatype of the new column should now be "date"
+sapply(df, class)
+
+```
+Note that the make_date() function has automatically set the day to 01. We will further modify the date format later on when necessary.  
+
+### d)
+For simplicity, I decide to delete two character values: "carrier" and "airport_name". You can obtain the same information from "carrier_name" and "airport" whatsoever.
+```{r}
+# delete two columns and overwrite the original data frame
+df <- df %>% 
+  select(-carrier) %>%
+  select(-airport_name)
+```
+
+
+## Part II Punctuality and irregularity by month, season, airlines and airports
+### e)
+To see whether the on-time performance has improved during the period (the first research question), let's summarize the percentage of on-time and delayed flights by month. 
+```{r}
+tb1 <- df %>%
+  group_by(date) %>%
+  summarize(percent_ontime = round(((sum(arr_flights, na.rm=TRUE) - sum(arr_del15, na.rm=TRUE)) / 
+                                      sum(arr_flights, na.rm=TRUE) * 100), 1),
+            percent_irregular = round((sum(arr_del15, na.rm=TRUE) / sum(arr_flights, na.rm=TRUE) * 100), 1))
+
+# create a sister table showing dates in a more readable format
+tb1_month <- tb1 %>% 
+  mutate(date = format(date, "%b %Y"))
+```
+
+```{r}
+# use the kable command and kableExtra to make the table more appealing
+kable(tb1_month, 
+      col.names = c("Month", "On-Time Rate (%)", "Irregularity Rate (%)"), 
+      align = 'c') %>%
+      kable_styling(bootstrap_options = c("striped", "hover"),
+                    full_width = F,
+                    position = "center",
+                    font_size = 18)
+```
+### f)
+With this table in place, it is now possible to visualize the monthly on-time performance over time. 
+```{r}
+gg1 <- tb1 %>%
+  ggplot(aes(date)) +
+  geom_line(aes(y = percent_ontime, color = "On-time flights"), size = 1) +
+  geom_line(aes(y = percent_irregular, color = "Irregular flights"), size = 1) + 
+  geom_point(aes(y = percent_ontime)) +
+  geom_point(aes(y = percent_irregular)) +
+  labs(y = "Percent", title = "U.S. Domestic Flights On-Time Performance by Month") +
+  theme_classic()+
+  scale_x_date("Month", breaks = breaks_width("1 months"), labels = label_date_short()) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+  
+gg1
+```
+The graph shows the overall downward trend in the punctuality rate of the domestic flights in the U.S. between September 2021 and August 2022. Hence, the on-time performance has not seen a continuous improvement by month. However, throughout the year, at least 75% of the flights were being punctual. We can probably assume this figure as the "bottom line" with respect to punctuality in the U.S. domestic aviation market. 
+
+### g)
+Next, let's dive into the second research question. Let's find out how differently the punctuality rates act between seasons.
+```{r}
+# add a new column "season" to the above table
+season <- c("Autumn", "Autumn", "Autumn", "Winter", "Winter", "Winter", "Spring", "Spring", "Spring", "Summer", "Summer", "Summer")
+
+tb1["season"] <- season
+```
+
+```{r}
+# group by season and summarize the data for mean value
+tb2 <- tb1 %>%
+  group_by(season) %>%
+  summarise(mean_ontime = round(mean(percent_ontime, na.rm=TRUE), 1), 
+            mean_irregular = round(mean(percent_irregular, na.rm=TRUE), 1))
+```
+
+```{r}
+kable(tb2, 
+      col.names = c("Season", "On-Time Rate (%)", "Irregularity Rate (%)"), 
+      align = 'c') %>%
+      kable_styling(bootstrap_options = c("striped", "hover"),
+                    full_width = F,
+                    position = "center",
+                    font_size = 18)
+```
+Clearly, the punctuality rates differ between seasons, though the differences are not dramatic. The highest irregularity rate, nearly 23%, was seen in the summer of the year while in the autumn, almost 85% of the domestic flights were operated according to schedule. 
+
+### h)
+Then, let's compare the punctuality rates of all the airlines. 
+```{r}
+# group by airlines and summarize the data for desired percentage
+tb3 <- df %>%
+  group_by(carrier_name) %>%
+  summarize(percent_ontime = round(((sum(arr_flights, na.rm=TRUE) - sum(arr_del15, na.rm=TRUE)) / sum(arr_flights, na.rm=TRUE) * 100), 1)) %>%
+  arrange(desc(percent_ontime))
+```
+
+```{r}
+gg2 <- tb3 %>%
+  ggplot(aes(x = percent_ontime, y = reorder(carrier_name, percent_ontime))) +
+  geom_point() +
+  geom_vline(xintercept = ((sum(df$arr_flights, na.rm=TRUE) - sum(df$arr_del15, na.rm=TRUE)) / 
+                        sum(df$arr_flights, na.rm=TRUE) * 100), linetype = "dashed") +
+  annotate("text",x = 79.5, y = 10, label = "mean", angle = 90, size = 4, color = "gray") +
+  labs(x = "Annual On-Time Rate (%)",
+       y = NULL,
+       title = "On-Time Performance by Airlines (09.2021-08.2022)") +
+  theme_classic() +
+  coord_cartesian(xlim = c(60, 100))
+
+gg2
+```
+Based on this graph, we know that there are `r nrow(tb3)` airline companies included in our dataset and more than half of them outperformed the other competitors who failed to reach the annual average punctuality rate, or `r round(((sum(df$arr_flights, na.rm=TRUE) - sum(df$arr_del15, na.rm=TRUE)) / sum(df$arr_flights, na.rm=TRUE) * 100), 1)`%.
+
+### i)
+It would also be interesting to visualize the most punctual airlines in the U.S. 
+```{r}
+gg3 <- tb3 %>%
+  top_n(10, percent_ontime) %>% 
+  ggplot(aes(x = reorder(carrier_name, -percent_ontime), y = percent_ontime)) +
+  geom_col(fill = "#6abceb") +
+  labs(x = NULL,
+       y = " Annual On-Time Rate (%)",
+       title = "Top 10 Most Punctual Airlines Covering Domestic Flights (09.2021-08.2022)") +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 100), expand = c(0, 0)) +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank()) +
+   guides(x = guide_axis(angle = 45))
+
+gg3
+```
+
+### j)
+Finally, let's explore the annual on-time rate across all the airports. We will start by summarizing the data and sorting the airports by on-time rates from high to low. 
+```{r}
+# group by airports and summarize the data for desired percentage
+tb4 <- df %>% 
+  group_by(airport) %>%
+  summarize(percent_ontime = round(((sum(arr_flights, na.rm=TRUE) - sum(arr_del15, na.rm=TRUE)) / 
+                                      sum(arr_flights, na.rm=TRUE) * 100), 1)) %>%
+  arrange(desc(percent_ontime))
+
+# show the table using kable and a scroll bar
+tb4 %>% 
+  kable(col.names = c("Airport", "On-Time Rate (%)"), 
+        align = 'c') %>%
+  kable_styling("striped", full_width = F) %>% 
+  scroll_box(width = "300px", height = "500px")
+```
+
+
+### k) introduce the second dataset
+There are `r nrow(tb4)` airports in the table above; just by looking at the statistics we will not gain much insight. It would then be cool to plot them on a map so that the data can be demonstrated in a more vivid way. Nevertheless, in the original data frame, there is no geographic coordinates of the airports. Hence, we will have to import the second data frame to merge with the table above (tb4). 
+```{r}
+# import the second data frame
+# use the fread command of the data.table package to import only selected variables
+df_airport <- fread("us-airports.csv",
+                    select = c("iata_code", "latitude_deg", "longitude_deg"))
+
+# delete the first row
+df_airport <- df_airport[-1,]
+
+# modify the data type of two variable - latitudes and longitudes
+df_airport <- df_airport %>% 
+  mutate(latitude_deg = as.numeric(latitude_deg),
+         longitude_deg = as.numeric(longitude_deg))
+
+# rename "iata_code" to match the corresponding variable ("airport") in tb4
+df_airport <- df_airport %>%
+  rename(airport = iata_code)
+
+# overview of the data frame
+glimpse(df_airport)
+```
+
+### l) merge the second dataset
+Now, the second dataset is ready for use. Let's merge it into tb4 using the left_join command.
+```{r}
+# perform left join and overwrite the original table
+tb4 <- left_join(tb4, df_airport, by = "airport")
+
+# show the table using kable and a scroll bar
+tb4 %>% 
+  kable(col.names = c("Airport", "On-Time Rate (%)", "Latitude", "Longitude"), 
+        align = 'c') %>%
+  kable_styling("striped", full_width = F) %>% 
+  scroll_box(width = "500px", height = "500px")
+```
+
+
+
+By quickly scrolling down the table, we notice that we are missing latitudes and longitudes from a few observations. Indeed, it is not an easy task to perfectly merge two data frames from different sources, but we shall be satisfied that nearly 98% of the data go hand-in-hand successfully! If we would like to compensate for the missing values, of course we can search online and manually input them into the dataset. 
+
+
+### m)
+Finally, it is time to plot the data on a Google map. 
+
+```{r, echo = FALSE}
+private_key <- "AIzaSyB0bgVhYtP3p-QhWyYBq9D3dDv9vaSDllg"
+```
+
+```{r}
+register_google(key = private_key, write = TRUE) 
+
+map <- get_map(location = "united states", zoom = 4)
+
+airport_map <- ggmap(map) + 
+  geom_point(data = drop_na(tb4),
+             mapping = aes(x = longitude_deg, y = latitude_deg, 
+                           color = percent_ontime), size = 2, na.rm = TRUE) +
+  scale_colour_distiller(type = "seq", palette = "YlOrRd")
+                 
+airport_map
+```
+The map, together with the scatter plot, reveals that most of the airports with relatively low on-time rates (the red and dark orange points) are mainly located at three areas: California, the northeast and Florida. This actually makes sense. Many airlines have their hubs in those metropolises in the northeast and California where many factors can pose a challenge to their on-time performance. As for Florida, it is prone to extreme weathers that can potentially have a huge impact on flight punctuality. 
+
+
+## Part III Causes of flight delay
+
+### n)
+We know that the causes of domestic flight delays in the U.S. break down into five broad categories. Now, let's find out which cause(s) is the most common one(s) (third research question). First, let's check out the proportion of each cause in terms of the total delayed flights. 
+```{r}
+# create a data frame
+v1 <- c("Air carrier", "Extreme weather", "National Aviation System", "Security", "Late aircraft")
+v2 <- c(round(sum(df$carrier_ct, na.rm=TRUE)/sum(df$arr_del15, na.rm=TRUE)*100, 1), 
+        round(sum(df$weather_ct, na.rm=TRUE)/sum(df$arr_del15, na.rm=TRUE)*100, 1),
+        round(sum(df$nas_ct, na.rm=TRUE)/sum(df$arr_del15, na.rm=TRUE)*100, 1),
+        round(sum(df$security_ct, na.rm=TRUE)/sum(df$arr_del15, na.rm=TRUE)*100, 1),
+        round(sum(df$late_aircraft_ct, na.rm=TRUE)/sum(df$arr_del15, na.rm=TRUE)*100, 1))
+  
+tb5 <- data.frame(v1, v2)
+
+colnames(tb5) <- c("delay_cause", "percent")
+```
+
+```{r}
+# visualize proportions using a treemap
+gg4 <- tb5 %>% 
+  ggplot(aes(x = "", y = percent, fill = delay_cause)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Delay Cause, Percent of Total Delayed Flights (%)") +
+  geom_label(aes(label = percent), color = "white", 
+             position = position_stack(vjust=0.5),
+             show.legend = FALSE) +
+  scale_fill_manual(values = c("#61c9a4", "#010350", "#f2d985", "#897d65", "#FC4E07"),
+                    name = NULL) +
+  theme_void()
+
+gg4
+```
+
+### o)
+Let's also examine the proportion of each cause in terms of the total delay minutes. 
+```{r}
+# create a data frame
+v1 <- c("Air carrier", "Extreme weather", "National Aviation System", "Security", "Late aircraft")
+v2 <- c(round(sum(df$carrier_delay, na.rm=TRUE)/sum(df$arr_delay, na.rm=TRUE)*100, 1), 
+        round(sum(df$weather_delay, na.rm=TRUE)/sum(df$arr_delay, na.rm=TRUE)*100, 1),
+        round(sum(df$nas_delay, na.rm=TRUE)/sum(df$arr_delay, na.rm=TRUE)*100, 1),
+        round(sum(df$security_delay, na.rm=TRUE)/sum(df$arr_delay, na.rm=TRUE)*100, 1),
+        round(sum(df$late_aircraft_delay, na.rm=TRUE)/sum(df$arr_delay, na.rm=TRUE)*100, 1))
+  
+tb6 <- data.frame(v1, v2)
+
+colnames(tb6) <- c("delay_cause", "percent")
+```
+
+```{r}
+# visualize the proportions using a pie chart
+gg5 <- tb6 %>% 
+  ggplot(aes(x = "", y = percent, fill = delay_cause)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Delay Cause, Percent of Total Delay Minutes (%)") +
+  geom_label(aes(label = percent), color = "white", 
+             position = position_stack(vjust=0.5),
+             show.legend = FALSE) +
+  scale_fill_manual(values = c("#61c9a4", "#010350", "#f2d985", "#897d65", "#FC4E07"),
+                    name = NULL) +
+  theme_void()
+
+gg5
+```
+As we can see from both pie charts, air carrier and late-arriving aircraft are the two dominant causes for the domestic flight delays in the U.S. These two causes combined account for approximately 75% of all the delayed flights as well as the time wasted.
+
+
+### p)
+We will now just focus on the data of delay minutes. Let's break it down into months to see if there is any consistency in terms of the proportions of five causes. 
+```{r}
+tb7 <- df %>% 
+  group_by(date) %>% 
+  summarise(per_carrier = sum(carrier_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE)*100, 
+            per_weather = sum(weather_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE)*100,
+            per_nas = sum(nas_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE)*100,
+            per_security = sum(security_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE)*100,
+            per_late_aircraft = sum(late_aircraft_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE)*100)
+
+tb7_month <- tb7 %>% 
+  mutate(date = as.Date(date, format = "%m/%d/%Y")) %>% 
+  mutate(date = format(date, "%b %Y")) 
+
+tb7_month %>% 
+  kable(col.names = c("Month", "Air Carrier", "Extreme Weather", 
+                      "National Aviation System", "Security", "Late Aircraft"), 
+        digits = 2, align = 'c', 
+        caption = "Delay Cause by Month, Percent of Total Delay Minutes(%)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = F,
+                position = "center",
+                font_size = 15)
+```
+
+
+### q)
+Let's visualize the table above using a percent stacked bar chart. 
+```{r}
+# convert the table from wide to long format
+tb7_long <- tb7 %>% 
+  pivot_longer(cols = c("per_carrier", "per_weather", "per_nas", "per_security", "per_late_aircraft"),
+               names_to = "cause",
+               values_to = "percent")
+```
+
+```{r}
+# visualize using percent stacked bar chart
+gg6 <- tb7_long %>% 
+  ggplot(aes(x = date, y = percent, fill = fct_rev(cause))) + 
+  geom_bar(position = "fill", stat = "identity") + 
+  scale_y_continuous("Percentage", labels = scales::percent, expand = c(0, 0)) + 
+  scale_x_date("Month", breaks = breaks_width("1 months"), labels = label_date_short(), expand = c(0, 0)) +
+  labs(title = "Delay Cause by Month, Percent of Total Delay Minutes") +
+  scale_fill_manual(values = c("#010350", "#FC4E07", "#897d65", "#f2d985", "#61c9a4"), 
+                    labels = c("Extreme weather", "Security", "National Aviation System", 
+                               "Late aircraft", "Air carrier"),
+                    name = NULL) +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank())
+  
+gg6
+```
+As the percent stacked bar chart shows, the proportions of the five causes between months are roughly the same, with air carrier and late-arriving aircraft continuously causing the majority of the flight delays on a monthly basis.
+
+
+### r)
+Now, let's zoom in on a few airlines. Our goal is to see if air carrier and late-arriving aircraft are also the most common causes from the perspective of air carriers. We will select four leading airlines with the [largest domestic market share](https://www.statista.com/statistics/250577/domestic-market-share-of-leading-us-airlines/). The reason for such selection is that these airlines generally have more route, flights, destinations and aircraft, thus more representative than other carriers. 
+```{r}
+tb8 <- df %>% 
+  filter(carrier_name %in% c("American Airlines Inc.", 
+                             "Southwest Airlines Co.", 
+                             "United Air Lines Inc.", 
+                             "Delta Air Lines Inc.")) %>% 
+  group_by(date, carrier_name) %>% 
+  summarise(per_carrier = sum(carrier_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE),
+            per_weather = sum(weather_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE),
+            per_nas = sum(nas_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE),
+            per_security = sum(security_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE),
+            per_late_aircraft = sum(late_aircraft_delay, na.rm=TRUE)/sum(arr_delay, na.rm=TRUE))
+```
+
+```{r}
+# convert the table from wide to long format
+tb8_long <- tb8 %>% 
+  pivot_longer(cols = c("per_carrier", "per_weather", "per_nas", "per_security", "per_late_aircraft"),
+               names_to = "cause",
+               values_to = "percent")
+```
+
+```{r}
+gg7 <- tb8_long %>% 
+  ggplot(aes(x = date, y = percent, group = cause, color = cause)) +
+  geom_line(size = 0.6) +
+  facet_wrap(vars(carrier_name)) +
+  labs(title = "Delay Cause Over Time between Four Major Carriers") +
+  scale_y_continuous("Percentage", labels = percent, limits = c(0, 0.6), expand = c(0, 0)) + 
+  scale_x_date("Month", breaks = breaks_width("2 months"), labels = label_date_short(), expand = c(0, 0)) +
+  scale_color_manual(values = c("#61c9a4", "#f2d985", "#897d65", "#010350", "#FC4E07"),
+                     labels = c("Air carrier", "Late aircraft", "National Aviation System", 
+                               "Extreme weather", "Security"), 
+                     name = NULL) +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank())
+
+gg7
+```
+Although the causes of air carrier and late-arriving aircraft are behaving differently between the four airlines, it is not hard to find out that both of them are the main "culprits". 
+
+At this point, we are confident to say that the dominant causes of the domestic flight delays in the U.S. are air carrier as well as late-arriving aircraft. 
+
+
+### s)
+Last but not least, let's see which cause is the worst time killer. 
+```{r}
+v1 <- c("Air carrier", "Extreme weather", "National Aviation System", "Security", "Late aircraft")
+v2 <- c(round(sum(df$carrier_delay, na.rm=TRUE)/sum(df$carrier_ct, na.rm=TRUE), 1), 
+        round(sum(df$weather_delay, na.rm=TRUE)/sum(df$weather_ct, na.rm=TRUE), 1),
+        round(sum(df$nas_delay, na.rm=TRUE)/sum(df$nas_ct, na.rm=TRUE), 1),
+        round(sum(df$security_delay, na.rm=TRUE)/sum(df$security_ct, na.rm=TRUE), 1),
+        round(sum(df$late_aircraft_delay, na.rm=TRUE)/sum(df$late_aircraft_ct, na.rm=TRUE), 1))
+
+tb9 <- data.frame(v1, v2)
+
+colnames(tb9) <- c("cause", "mean_delay_min")
+```
+
+```{r}
+gg8 <- tb9 %>% 
+  ggplot(aes(x = mean_delay_min, y = reorder(cause, mean_delay_min))) +
+  geom_bar(stat = "identity", fill = "#6abceb") +
+  geom_vline(xintercept = (sum(df$arr_delay, na.rm=TRUE) / sum(df$arr_del15, na.rm=TRUE)),
+             linetype = "dashed") +
+  annotate("text",x = 65, y = 1.5, label = "mean", angle = 90, size = 4, color = "gray") +
+  labs(x = "Delay time (minutes)",
+       y = NULL,
+       title = "Average Delay Time per Delayed Flight") +
+  theme_bw() +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank()) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0))
+
+gg8
+```
+Although air carrier and late-arriving aircraft are what to blame most of the times, the worst time killer is however the extreme weather. Passengers can expect, on average, a 100-minute long delay if the flight is delayed due to extreme weather. Meanwhile, the mean delay time for all delayed flights is `r round(sum(df$arr_delay, na.rm=TRUE) / sum(df$arr_del15, na.rm=TRUE), 1)` minutes. 
+
+
+## Part IV Conclusion and Insights
+This individual project explores the on-time performance of U.S. domestic flights over a certain period of time. Datasets have been carefully selected from trustworthy sources to ensure our findings are meaningful. Throughout this project, I have focused on descriptive statistics and leveraged data aggregation and data visualization for my story-telling. 
+
+The main findings are:
+
+- The on-time performance of U.S. domestic flights has seen an overall downward trend between September 2021 and August 2022.
+- Punctuality rates differ between seasons, with the lowest in summer and highest in autumn.
+- The annual average punctuality rate is `r round(((sum(df$arr_flights, na.rm=TRUE) - sum(df$arr_del15, na.rm=TRUE)) / sum(df$arr_flights, na.rm=TRUE) * 100), 1)`%. More than half of the airlines performed above average.
+- Airports with low punctuality rates are mainly located in California, the northeast and Florida.
+- Air carrier and late-arriving aircraft are the major reasons for flight delay. 
+- The longest waiting time can be expected when it comes to delays due to extreme weather. 
